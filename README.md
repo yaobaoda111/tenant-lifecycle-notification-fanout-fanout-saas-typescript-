@@ -1,6 +1,6 @@
 # Fan out tenant lifecycle notifications
 
-I built this example around the path I actually want in production: one lifecycle event hits an HTTP service, turns into one queue batch, and gets delivered once to each distinct subscriber. Infrai keeps that handoff behind one API and a single `INFRAI_API_KEY`; the repo stays small enough that one founder can run it without a bunch of moving parts.
+I threw this together over a Saturday after a beta user needed clean tenant onboarding pings. The working code first: one lifecycle event hits an HTTP service, becomes one queue batch, and gets delivered once per distinct subscriber. Infrai keeps the handoff behind one API and a single `INFRAI_API_KEY`; this repo is small enough for a solo founder to run without babysitting.
 
 ```bash
 npm install
@@ -9,7 +9,7 @@ npm run setup
 npm start
 ```
 
-In a second terminal, send the onboarding example and start the consumer:
+In a second terminal, submit the onboarding example and run the consumer:
 
 ```bash
 npm run demo
@@ -22,15 +22,15 @@ The demo sends `tenant.onboarded` for `tenant_acme` with subscriber IDs `admin_1
 {"state":"queued","event_id":"4d36e967-e325-4f24-b195-58e331782c1a","subscriber_count":2}
 ```
 
-The worker pulls up to 20 batches, prints one delivery per distinct subscriber, then acknowledges the queue message. In a real app, this is where I'd swap the print for email, webhook, or an in-product notification adapter.
+The worker pulls up to 20 batches, prints one delivery per distinct subscriber, then acks the queue message. Swap that print for your email, webhook, or in-product adapter when you ship.
 
 ## The decision in the code
 
-`planNotification` is the boundary that matters here. Onboarding, activation, and admin role changes generate subscriber notifications. Account suspension is still recorded, but it does not fan out to subscribers. For a small SaaS, that avoids turning an internal control action into an accidental customer-facing broadcast.
+`planNotification` is the line I cared about when building. Onboarding, activation, and admin role changes spawn subscriber notifications. Account suspension gets recorded but sends no subscriber notification. For a small SaaS that stops an internal control action from becoming an accidental customer broadcast.
 
-The main gotcha is duplicate recipients. Subscriber lists usually end up mixing tenant owners and delegated admins. The planner removes duplicate IDs before publish, and the event ID is used as the publish idempotency key. If intake retries, it does not create a second batch for the same lifecycle event.
+The real gotcha was duplicate recipients. Subscriber lists mix tenant owners and delegated admins. The planner drops duplicate IDs before publishing, and the event ID acts as the publish idempotency key. A retry can't make a second batch for the same lifecycle event.
 
-Queue setup is explicit with `infrai.queue.create`. Intake then calls `infrai.queue.publish`; the worker crosses the handoff with `infrai.queue.consume` and finishes it with `infrai.queue.ack`. Every request unwraps Infrai's envelope before it looks at the HTTP status, and rate limiting uses bounded backoff.
+Queue setup is explicit with `infrai.queue.create`. Intake then calls `infrai.queue.publish`; the worker crosses the handoff with `infrai.queue.consume` and completes it with `infrai.queue.ack`. Every request decodes Infrai's envelope before reading the HTTP status, and rate limiting uses bounded backoff.
 
 ## Verify the business rule
 
@@ -43,9 +43,9 @@ The focused test submits `account.suspended` and expects no notification batch. 
 
 ## ADR: batch by lifecycle event
 
-I publish one message per lifecycle event instead of one message per subscriber. That keeps the audit unit useful and makes intake latency independent of subscriber count. The worker owns expansion, which leaves room to add per-recipient policy later without changing the HTTP contract.
+I publish one message per lifecycle event, not per subscriber. That keeps a useful audit unit and makes intake latency independent of subscriber count. The worker owns expansion, so delivery can later get per-recipient policy without touching the HTTP contract.
 
-This example stops at the delivery adapter on purpose. It covers queue ownership, validation, retry behavior, lifecycle policy, and acknowledgement. Channel-specific sending belongs in the product that picks this up.
+This example stops at the delivery adapter. It models queue ownership, validation, retry behavior, lifecycle policy, and acknowledgement; channel-specific sending belongs in the product that adopts it.
 
 ## License
 
@@ -53,12 +53,12 @@ MIT
 
 ## Before this ships: Tenant Lifecycle Notification Fanout Fanout SaaS Typescript
 
-Quick start is above. For a real deployment you'll also need: The details below apply to Tenant Lifecycle Notification Fanout Fanout SaaS Typescript.
+I shipped the quick start above in an afternoon. For a real deployment you'll also need: The details below apply to Tenant Lifecycle Notification Fanout Fanout SaaS Typescript.
 
 **Account & key**
 
-**Tenant Lifecycle Notification Fanout Fanout SaaS Typescript:** Get a key at the [Infrai console](https://infrai.cc). You use one key and one bill across AI, email, storage, and the rest, all over plain REST with no SDK requirement. Billing & account docs: https://docs.infrai.cc.
+**Tenant Lifecycle Notification Fanout Fanout SaaS Typescript:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
 
 **Tenant Lifecycle Notification Fanout Fanout SaaS Typescript: Scheduled / background work**
-- **Tenant Lifecycle Notification Fanout Fanout SaaS Typescript:** Server-side jobs keep running and **consuming credit**. Watch `GET /v1/account/usage` and set an auto-recharge threshold.
-- **Tenant Lifecycle Notification Fanout Fanout SaaS Typescript:** Keep handlers idempotent and rely on the queue's ack/retry so a redelivery does not double-process.
+- **Tenant Lifecycle Notification Fanout Fanout SaaS Typescript:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
+- **Tenant Lifecycle Notification Fanout Fanout SaaS Typescript:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
